@@ -1,0 +1,55 @@
+name: Deploy on Push to Main
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set up SSH
+      run: |
+        mkdir -p ./.ssh  # Create the .ssh directory if it doesn't exist
+
+        echo "$PRIVATE_SSH_KEY" > ./.ssh/id_rsa
+        chmod 600 ./.ssh/id_rsa
+        ssh-keyscan $REMOTE_IP >> ./.ssh/known_hosts
+      env:
+        PRIVATE_SSH_KEY: ${{ secrets.SCALEWAY_SSH_PRIVATE_KEY }}
+        REMOTE_IP: ${{ secrets.REMOTE_IP }}
+
+    - name: Deploy
+      run: |
+        ssh -o StrictHostKeyChecking=no -i ./.ssh/id_rsa root@$REMOTE_IP 'bash ~/$SCRIPT'
+      env:
+        REMOTE_IP: ${{ secrets.REMOTE_IP }}
+        SCRIPT: ${{ secrets.SCRIPT }}
+
+    - name: Clean up SSH
+      run: |
+        rm -f ./.ssh/id_rsa
+
+    - name: Send custom JSON data to Slack workflow
+      id: slack
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        # For posting a rich message using Block Kit
+        payload: |
+          {
+            "text": "[API] GitHub Action build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "[API] GitHub Action build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+                }
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
